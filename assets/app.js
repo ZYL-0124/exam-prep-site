@@ -190,6 +190,33 @@
         '<button class="btn btn-primary" data-action="add-question">+ 新增题目</button>' +
       '</div>';
 
+    // 表格单独放在 #bankList 里，搜索时只刷这一块，输入框本身不动
+    $("#content").innerHTML = filterHtml + '<div id="bankList"></div>';
+
+    // 绑定筛选（下拉变更需要重建，因为知识点选项要跟着科目变）
+    $("#fSubject").onchange = function () { bankFilter.subject = this.value; bankFilter.knowledge = ""; renderBank(); };
+    $("#fKnowledge").onchange = function () { bankFilter.knowledge = this.value; renderBank(); };
+    $("#fType").onchange = function () { bankFilter.type = this.value; renderBank(); };
+
+    // 搜索框：实时检索。始终记录输入值并轻量防抖渲染，不依赖 isComposing 硬中断
+    // （部分中文输入法上屏时的 input 事件 isComposing 仍为 true，硬 return 会导致“输入不搜、删除才搜”）
+    var kw = $("#fKeyword");
+    var kwTimer = null;
+    kw.oninput = function () {
+      bankFilter.keyword = kw.value.trim();
+      clearTimeout(kwTimer);
+      kwTimer = setTimeout(renderBankList, 60);
+    };
+    kw.oncompositionend = function () {  // 组词结束立即渲染，避开防抖等待，保证中文实时
+      clearTimeout(kwTimer);
+      bankFilter.keyword = kw.value.trim();
+      renderBankList();
+    };
+
+    renderBankList();
+  }
+
+  function renderBankList() {
     var list = Store.filterQuestions(bankFilter);
     var rows = list.map(function (q) {
       var t = TYPE[q.type];
@@ -214,14 +241,8 @@
       (list.length ? '<table class="q-table"><thead><tr><th>题目</th><th>状态</th><th>操作</th></tr></thead><tbody>' + rows + '</tbody></table>'
         : '<div class="row-empty">没有符合条件的题目</div>') + '</div>';
 
-    $("#content").innerHTML = filterHtml + table;
-
-    // 绑定筛选
-    $("#fSubject").onchange = function () { bankFilter.subject = this.value; bankFilter.knowledge = ""; renderBank(); };
-    $("#fKnowledge").onchange = function () { bankFilter.knowledge = this.value; renderBank(); };
-    $("#fType").onchange = function () { bankFilter.type = this.value; renderBank(); };
-    var kw = $("#fKeyword");
-    kw.oninput = function () { bankFilter.keyword = this.value.trim(); renderBank(); };
+    var box = $("#bankList");
+    if (box) box.innerHTML = table;
   }
 
   /* ---------------- 题目表单弹窗 ---------------- */
