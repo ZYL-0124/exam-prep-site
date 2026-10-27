@@ -31,6 +31,10 @@
     return "q_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   }
 
+  // 题库种子版本：改题库内容时 +1，已使用站点的用户会在下次打开时被强制整体换新
+  // v3：最终干净题库 365 题（经源 PDF 逐题反查答案键验证，剔除源文件本身重复且答案矛盾的副本）
+  var SEED_VERSION = 3;
+
   var Store = {
     /* ---------- 题库 ---------- */
     getQuestions: function () { return read(KEYS.questions, []); },
@@ -246,23 +250,33 @@
       Object.keys(KEYS).forEach(function (k) { localStorage.removeItem(KEYS[k]); });
     },
 
-    /* 首次使用：载入种子数据；已使用时幂等补齐 HCIA 题库 */
+    /* 首次使用：整体载入种子数据；版本变更时强制整体换新题库 */
     ensureSeed: function () {
       var s = this.getSettings();
       var seed = global.SEED_QUESTIONS || [];
+      var stamp = function (q) { return Object.assign({}, q, { id: uid(), createdAt: Date.now() }); };
       if (!s.seeded) {
-        this.saveQuestions(seed.map(function (q) {
-          return Object.assign({}, q, { id: uid(), createdAt: Date.now() });
-        }));
-        s.seeded = true; this.saveSettings(s);
+        // 全新用户：直接灌入当前种子
+        this.saveQuestions(seed.map(stamp));
+        s.seeded = true; s.seedVersion = SEED_VERSION; this.saveSettings(s);
+      } else if (s.seedVersion !== SEED_VERSION) {
+        // 版本升级：整体替换为新题库。旧题 id 已全部失效，清理失效的逐题数据
+        // （错题本 / 正确率统计 / 收藏 / 顺序续做），但保留考试记录与练习历史作为档案
+        // （它们不依赖具体题号，留作历史记录）。
+        this.saveQuestions(seed.map(stamp));
+        write(KEYS.wrong, []);
+        write(KEYS.qstats, {});
+        write(KEYS.favorites, []);
+        write(KEYS.resume, {});
+        s.seeded = true; s.seedVersion = SEED_VERSION; this.saveSettings(s);
       } else if (seed.length) {
-        // 已使用过：若本地尚缺 HCIA 相关分类，则追加（不破坏已有题目，且幂等）
+        // 兜底：已使用过但尚缺某些分类，则追加（幂等，不破坏已有题目）
         var have = {};
         this.getQuestions().forEach(function (q) { if (q.subject) have[q.subject] = true; });
         var need = seed.filter(function (q) { return !have[q.subject]; });
         if (need.length) {
           var list = this.getQuestions();
-          need.forEach(function (q) { list.push(Object.assign({}, q, { id: uid(), createdAt: Date.now() })); });
+          need.forEach(function (q) { list.push(stamp(q)); });
           this.saveQuestions(list);
         }
       }

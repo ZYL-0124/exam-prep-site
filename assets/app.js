@@ -85,13 +85,23 @@
 
     var hero = '';
     if (resumeKeys.length) {
-      var r = resume[resumeKeys[0]];
-      hero = '<div class="hero"><div><h2>继续上次的练习</h2><p>' +
-        esc((r.subject || "全部科目") + (r.knowledge ? " · " + r.knowledge : "")) +
-        ' · 上次做到第 ' + (r.index + 1) + ' 题</p></div>' +
-        '<div class="hero-actions"><button class="btn btn-primary" data-action="resume-practice" data-key="' +
-        esc(resumeKeys[0]) + '">继续练习</button>' +
-        '<button class="btn" data-action="clear-resume">清除进度</button></div></div>';
+      // 历史进度：列出进行中的顺序练习 / 顺序背题，可分别继续或清除
+      var items = resumeKeys.slice(0, 3).map(function (k) {
+        var r = resume[k];
+        var isRecite = r.type === "recite";
+        var total = Store.filterQuestions({ subject: r.subject || "", knowledge: r.knowledge || "" }).length;
+        return '<div class="resume-row">' +
+          '<div class="resume-main">' +
+            '<div class="resume-title">' + (isRecite ? "📖 顺序背题" : "📑 顺序练习") + ' · ' + esc(r.subject || "全部科目") + (r.knowledge ? " · " + esc(r.knowledge) : "") + '</div>' +
+            '<div class="resume-sub">上次做到第 ' + (r.index + 1) + ' 题' + (total ? ' / 共 ' + total + ' 题' : '') + '</div>' +
+          '</div>' +
+          '<div class="resume-actions">' +
+            '<button class="btn btn-sm btn-primary" data-action="resume-practice" data-key="' + esc(k) + '">继续</button>' +
+            '<button class="btn btn-sm btn-ghost" data-action="clear-resume" data-key="' + esc(k) + '">清除</button>' +
+          '</div></div>';
+      }).join("");
+      hero = '<div class="hero hero-resume"><div><h2>继续上次的学习</h2>' +
+        '<div class="resume-list">' + items + '</div></div></div>';
     } else {
       hero = '<div class="hero"><div><h2>欢迎使用考前刷题</h2><p>先去「题库管理」录入题目，或直接开始练习 / 背题。</p></div>' +
         '<div class="hero-actions"><button class="btn btn-primary" data-action="go-practice">开始练习</button>' +
@@ -459,18 +469,33 @@
 
     // 选项 / 填空 / 简答
     var inputArea = "";
+    // 判分后按「是不是答案 × 我选没选」判定；漏选不换底色，只在右侧挂小角标
+    var missed = [], extra = [];
     if (t.choice) {
       var opts = q.options;
       var sel = saved != null ? (Array.isArray(saved) ? saved : [saved]) : [];
+      var ansArr = Array.isArray(q.answer) ? q.answer : [q.answer];
+      if (res) {
+        missed = ansArr.filter(function (i) { return sel.indexOf(i) < 0; });
+        extra = sel.filter(function (i) { return ansArr.indexOf(i) < 0; });
+      }
       inputArea = '<div class="options" id="optList">' + opts.map(function (o, i) {
-        var cls = "option";
-        var mark = String.fromCharCode(65 + i);
-        if (res) { // 已判分（练习模式回看）
-          if (Array.isArray(q.answer) ? q.answer.indexOf(i) >= 0 : q.answer === i) cls += " correct";
-          if (sel.indexOf(i) >= 0 && !res.correct && (Array.isArray(q.answer) ? q.answer.indexOf(i) < 0 : q.answer !== i)) cls += " wrong";
-          mark = (Array.isArray(q.answer) ? q.answer.indexOf(i) >= 0 : q.answer === i) ? "✓" : (sel.indexOf(i) >= 0 ? "✕" : mark);
+        var cls = "option", flag = "";
+        if (res) {
+          var isAns = ansArr.indexOf(i) >= 0;
+          var isSel = sel.indexOf(i) >= 0;
+          if (t.multi) {
+            // 多选：只看"选了的项"的对错；漏选的正确项只挂小角标、不换底色
+            if (isAns && isSel) { cls += " sel-correct"; flag = '<span class="opt-flag ok">✓</span>'; }
+            else if (!isAns && isSel) { cls += " wrong"; flag = '<span class="opt-flag no">✕</span>'; }
+            else if (isAns && !isSel) { cls += " missed"; flag = '<span class="opt-flag miss">漏选</span>'; }
+          } else {
+            // 单选/判断：正确项始终标绿（让用户看到答案），选错的标红
+            if (isAns) { cls += " sel-correct"; flag = '<span class="opt-flag ok">✓</span>'; }
+            else if (isSel) { cls += " wrong"; flag = '<span class="opt-flag no">✕</span>'; }
+          }
         } else if (sel.indexOf(i) >= 0) { cls += " sel"; }
-        return '<div class="' + cls + '" data-action="quiz-option" data-i="' + i + '"><span class="opt-mark">' + mark + '</span><span>' + esc(o) + '</span></div>';
+        return '<div class="' + cls + '" data-action="quiz-option" data-i="' + i + '"><span class="opt-mark">' + String.fromCharCode(65 + i) + '</span><span class="opt-text">' + esc(o) + '</span>' + flag + '</div>';
       }).join("") + '</div>';
     } else if (q.type === "fill") {
       inputArea = '<div class="answer-area"><input class="field fill-input" id="fillInput" placeholder="输入答案" value="' + esc(saved || "") + '"' + (res ? " disabled" : "") + '></div>';
@@ -482,10 +507,25 @@
     // 反馈区（练习模式且已作答）
     var fb = "";
     if (res) {
+      var fbTitle = res.correct ? "✓ 回答正确" : "✕ 回答错误";
+      var fbAnsLine;
+      if (!res.correct && q.type === "multiple") {
+        // 多选题答错只讲差异：漏选/多选哪几项，不再重复整段正确答案
+        var reason = [];
+        if (missed.length) reason.push("漏选 " + missed.length + " 项");
+        if (extra.length) reason.push("多选 " + extra.length + " 项");
+        if (reason.length) fbTitle += " · " + reason.join(" · ");
+        var parts = [];
+        if (missed.length) parts.push('<div class="fb-ans"><span class="fb-k">漏选：</span><span class="fb-miss">' + missed.map(function (i) { return String.fromCharCode(65 + i) + ". " + q.options[i]; }).join("；") + '</span></div>');
+        if (extra.length) parts.push('<div class="fb-ans"><span class="fb-k">多选：</span><span class="fb-miss">' + extra.map(function (i) { return String.fromCharCode(65 + i) + ". " + q.options[i]; }).join("；") + '</span></div>');
+        fbAnsLine = parts.join("");
+      } else {
+        fbAnsLine = '<div class="fb-ans"><span class="fb-k">正确答案：</span>' + esc(res.answerText) + '</div>';
+      }
       fb = '<div class="feedback show ' + (res.correct ? "ok" : "no") + '">' +
-        '<div class="fb-title">' + (res.correct ? "✓ 回答正确" : "✕ 回答错误") + '</div>' +
-        '<div class="fb-ans">你的答案：' + esc(res.userText) + '</div>' +
-        '<div class="fb-ans">正确答案：' + esc(res.answerText) + '</div>' +
+        '<div class="fb-title">' + fbTitle + '</div>' +
+        '<div class="fb-ans"><span class="fb-k">你的答案：</span>' + esc(res.userText) + '</div>' +
+        fbAnsLine +
         (q.explanation ? '<div class="fb-exp">💡 ' + esc(q.explanation) + '</div>' : '') +
         (q.type === "short" && !res.correct ? '<div class="fb-exp">评分要点：' + esc(q.answer) + '</div>' : '') +
         '</div>';
@@ -513,7 +553,58 @@
     }
     foot += '</div>';
 
-    $("#content").innerHTML = '<div class="quiz-wrap"><div class="card question-card">' + head + tags + body + inputArea + fb + foot + '</div></div>';
+    var qCard = '<div class="card question-card">' + head + tags + body + inputArea + fb + foot + '</div>';
+    if (session.mode === "exam") {
+      // 考试模式：题目 + 答题卡双栏；移动端答题卡收为可滑出抽屉（配合 .sheet-fab）
+      $("#content").innerHTML = '<div class="quiz-wrap exam-mode"><div class="quiz-layout">' +
+        '<div class="question-side">' + qCard + '</div>' +
+        renderAnswerSheet() +
+        '</div>' + examFabHtml() + '</div>';
+    } else {
+      $("#content").innerHTML = '<div class="quiz-wrap">' + qCard + '</div>';
+    }
+  }
+
+  function renderAnswerSheet() {
+    var total = session.questions.length;
+    var done = 0;
+    var cells = session.questions.map(function (q, i) {
+      var answered = session.answers[q.id] != null;
+      if (answered) done++;
+      var cls = "sheet-cell" + (i === session.index ? " current" : "") + (answered ? " done" : "");
+      return '<div class="' + cls + '" data-action="quiz-jump" data-i="' + i + '">' + (i + 1) + '</div>';
+    }).join("");
+    var legend = '<div class="sheet-legend">' +
+      '<span><i style="background:var(--success-soft);border:1.5px solid var(--success)"></i>已答</span>' +
+      '<span><i style="background:#fff;box-shadow:0 0 0 3px var(--primary-soft);border:1.5px solid var(--primary)"></i>当前</span>' +
+      '<span><i style="background:var(--bg);border:1.5px solid var(--line)"></i>未答</span>' +
+      '</div>';
+    return '<aside class="answer-sheet">' +
+      '<div class="sheet-top"><div class="sheet-title">答题卡</div>' +
+        '<button class="sheet-close" data-action="close-sheet" title="收起">' +
+        '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>' +
+        '</button></div>' +
+      '<div class="sheet-count">已答 <b>' + done + '</b> / ' + total + ' 题</div>' +
+      '<div class="sheet-grid">' + cells + '</div>' +
+      legend +
+      '<button class="btn btn-primary sheet-submit" data-action="exam-submit">交卷并查看结果</button>' +
+      '</aside>';
+  }
+
+  function examFabHtml() {
+    return '<button class="btn btn-primary sheet-fab" data-action="toggle-sheet">' +
+      '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect></svg>答题卡</button>' +
+      '<div class="sheet-mask" data-action="close-sheet"></div>';
+  }
+
+  function quizJump(i) {
+    if (i < 0 || i >= session.questions.length) return;
+    var sheet = document.querySelector(".answer-sheet");
+    var mask = document.querySelector(".sheet-mask");
+    if (sheet) sheet.classList.remove("open");
+    if (mask) mask.classList.remove("show");
+    session.index = i;
+    renderQuiz();
   }
 
   function quizSubmit() {
@@ -684,9 +775,9 @@
     } else {
       // 顺序：检查续做进度
       var key = "seq:" + (sub || "") + ":" + (know || "");
-      var rIdx = Store.getResume()[key];
+      var r = Store.getResume()[key];
       var list = pool.slice(0, count);
-      var startIdx = (rIdx != null && rIdx < list.length) ? rIdx : 0;
+      var startIdx = (r && r.index != null && r.index < list.length) ? r.index : 0;
       session = null;
       startSession({ questions: list, mode: "practice", title: (sub || "全部") + (know ? "·" + know : "") + " · 顺序练习" });
       session.index = startIdx;
@@ -743,11 +834,22 @@
       list = pool.slice();
       for (var i = list.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var tmp = list[i]; list[i] = list[j]; list[j] = tmp; }
       list = list.slice(0, count);
+      startSession({ questions: list, mode: "recite", title: (sub || "全部") + (know ? "·" + know : "") + " · 背题" });
+      renderRecite();
     } else {
+      // 顺序背题：同样支持断点续做（记 recite:科目:知识点）
+      var key = "recite:" + (sub || "") + ":" + (know || "");
+      var r = Store.getResume()[key];
+      var startIdx = (r && r.index != null && r.index < pool.length) ? r.index : 0;
       list = pool.slice(0, count);
+      startSession({ questions: list, mode: "recite", title: (sub || "全部") + (know ? "·" + know : "") + " · 背题" });
+      session.index = startIdx;
+      session.resumeKey = key;
+      session.resumeSub = sub;
+      session.resumeKnow = know;
+      if (startIdx > 0) toast("已从上次进度继续（第 " + (startIdx + 1) + " 题）");
+      renderRecite();
     }
-    startSession({ questions: list, mode: "recite", title: (sub || "全部") + (know ? "·" + know : "") + " · 背题" });
-    renderRecite();
   }
 
   function renderRecite() {
@@ -776,11 +878,10 @@
     if (t.choice) {
       var opts = q.options;
       optArea = '<div class="options">' + opts.map(function (o, i) {
-        var cls = "option";
-        var mark = String.fromCharCode(65 + i);
+        var cls = "option", flag = "";
         var isCorrect = Array.isArray(q.answer) ? q.answer.indexOf(i) >= 0 : q.answer === i;
-        if (revealed && isCorrect) { cls += " correct"; mark = "✓"; }
-        return '<div class="' + cls + '"><span class="opt-mark">' + mark + '</span><span>' + esc(o) + '</span></div>';
+        if (revealed && isCorrect) { cls += " sel-correct"; flag = '<span class="opt-flag ok">✓</span>'; }
+        return '<div class="' + cls + '"><span class="opt-mark">' + String.fromCharCode(65 + i) + '</span><span class="opt-text">' + esc(o) + '</span>' + flag + '</div>';
       }).join("") + '</div>';
       if (revealed) {
         var ansText = Array.isArray(q.answer)
@@ -816,13 +917,14 @@
     $("#content").innerHTML = '<div class="quiz-wrap"><div class="card question-card">' + head + tags + body + optArea + fb + foot + '</div></div>';
   }
 
-  // 练习过程中记录续做位置（每次进入下一题时）
+  // 练习/背题过程中记录续做位置（每次进入下一题时）
   function markResume() {
-    if (session && session.mode === "practice" && session.resumeKey) {
+    if (session && (session.mode === "practice" || session.mode === "recite") && session.resumeKey) {
       Store.setResume(session.resumeKey, {
         index: session.index,
         subject: session.resumeSub || "",
-        knowledge: session.resumeKnow || ""
+        knowledge: session.resumeKnow || "",
+        type: session.mode   // practice=顺序练习 / recite=顺序背题
       });
     }
   }
@@ -1208,6 +1310,22 @@
       case "quiz-next": markResume(); quizNext(); break;
       case "quiz-prev": session.index = Math.max(0, session.index - 1); renderQuiz(); break;
       case "quiz-finish": finishSession(); break;
+      case "quiz-jump": quizJump(+el.dataset.i); break;
+      case "toggle-sheet": {
+        var sEl = document.querySelector(".answer-sheet"), mEl = document.querySelector(".sheet-mask");
+        if (sEl) sEl.classList.toggle("open");
+        if (mEl) mEl.classList.toggle("show");
+        break;
+      }
+      case "close-sheet": {
+        var sEl2 = document.querySelector(".answer-sheet"), mEl2 = document.querySelector(".sheet-mask");
+        if (sEl2) sEl2.classList.remove("open");
+        if (mEl2) mEl2.classList.remove("show");
+        break;
+      }
+      case "exam-submit":
+        if (confirm("确定交卷？未作答的题目将按错误处理。")) finishSession();
+        break;
       case "quiz-exit":
         if (session && session.mode === "practice" && session.resumeKey) markResume();
         if (session && session.timer) clearInterval(session.timer);
@@ -1283,11 +1401,14 @@
       /* ---- 背题模式 ---- */
       case "start-recite": reciteStart(el.dataset.mode); break;
       case "recite-reveal": session.revealed[curQ().id] = true; renderRecite(); break;
-      case "recite-next": session.index++; renderRecite(); break;
+      case "recite-next": markResume(); session.index++; renderRecite(); break;
       case "recite-prev": session.index = Math.max(0, session.index - 1); renderRecite(); break;
-      case "recite-finish": toast("背题完成"); navigate("recite"); break;
+      case "recite-finish":
+        if (session && session.resumeKey) Store.clearResume(session.resumeKey); // 背完了就清掉进度
+        toast("背题完成"); navigate("recite"); break;
       case "recite-exit":
         if (session && session.timer) clearInterval(session.timer);
+        if (session && session.resumeKey) markResume(); // 退出时记下当前位置
         navigate("recite"); break;
       case "recite-wrong": Store.addWrong(curQ().id); toast("已加入错题本"); break;
 
@@ -1297,13 +1418,26 @@
         var sub2 = r.subject || "", know2 = r.knowledge || "";
         var pool2 = Store.filterQuestions({ subject: sub2, knowledge: know2 });
         if (!pool2.length) { toast("原筛选已无题目"); navigate("practice"); break; }
-        var k2 = "seq:" + sub2 + ":" + know2;
-        startSession({ questions: pool2, mode: "practice", title: (sub2 || "全部") + (know2 ? "·" + know2 : "") + " · 顺序练习" });
-        session.index = Math.min(r.index, pool2.length - 1);
-        session.resumeKey = k2;
-        session.resumeSub = sub2;
-        session.resumeKnow = know2;
-        renderQuiz();
+        if (r.type === "recite") {
+          // 继续顺序背题
+          navigate("recite"); // 先切分区，让标题/侧边栏高亮同步
+          startSession({ questions: pool2, mode: "recite", title: (sub2 || "全部") + (know2 ? "·" + know2 : "") + " · 背题" });
+          session.index = Math.min(r.index, pool2.length - 1);
+          session.resumeKey = key;
+          session.resumeSub = sub2;
+          session.resumeKnow = know2;
+          renderRecite();
+        } else {
+          // 继续顺序练习
+          navigate("practice");
+          var k2 = "seq:" + sub2 + ":" + know2;
+          startSession({ questions: pool2, mode: "practice", title: (sub2 || "全部") + (know2 ? "·" + know2 : "") + " · 顺序练习" });
+          session.index = Math.min(r.index, pool2.length - 1);
+          session.resumeKey = k2;
+          session.resumeSub = sub2;
+          session.resumeKnow = know2;
+          renderQuiz();
+        }
         if (r.index > 0) toast("已从上次进度继续（第 " + (r.index + 1) + " 题）");
         break;
       }

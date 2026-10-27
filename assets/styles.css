@@ -24,7 +24,7 @@
   --shadow-2: 0 12px 28px -8px rgba(47,155,214,0.28);
 }
 
-*{box-sizing:border-box;margin:0;padding:0}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{height:100%}
 body{
   font-family:"PingFang SC","Microsoft YaHei",Inter,system-ui,-apple-system,sans-serif;
@@ -90,17 +90,31 @@ input,select,textarea{font-family:inherit;font-size:14px;color:var(--text)}
 .btn{
   display:inline-flex;align-items:center;gap:7px;
   padding:10px 18px;border-radius:var(--radius-btn);font-weight:600;font-size:14px;
-  background:var(--primary-soft);color:var(--primary);transition:.18s;
+  background:var(--primary-soft);color:var(--primary);
+  transition:background .18s,filter .18s,transform .12s,box-shadow .18s;
+  touch-action:manipulation;-webkit-user-select:none;user-select:none;
 }
-.btn:hover{background:#D6ECFA}
 .btn-primary{background:var(--grad);color:#fff;box-shadow:var(--shadow-2)}
-.btn-primary:hover{filter:brightness(1.05)}
 .btn-ghost{background:transparent;color:var(--sub);border:1px solid var(--line)}
-.btn-ghost:hover{background:var(--bg)}
 .btn-danger{background:var(--danger-soft);color:var(--danger)}
-.btn-danger:hover{background:#FBD9D9}
 .btn-sm{padding:7px 13px;font-size:13px;border-radius:10px}
-.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
+
+/* hover 只给真正能悬停的设备（鼠标）。
+   以前 .btn:hover 的优先级比 .btn-primary 高，手机上点一下会残留悬停态，
+   把主按钮的渐变顶成浅蓝 #D6ECFA，白字看着就像"变透明"了。 */
+@media (hover:hover) and (pointer:fine){
+  .btn:hover{background:#D6ECFA}
+  .btn-primary:hover{background:var(--grad);filter:brightness(1.05)}
+  .btn-ghost:hover{background:var(--bg)}
+  .btn-danger:hover{background:#FBD9D9}
+}
+
+/* 按下反馈：只做轻微下沉 + 微微压暗，绝不改透明度 */
+.btn:not(:disabled):active{opacity:1;transform:translateY(1px)}
+.btn-primary:not(:disabled):active{background:var(--grad);filter:brightness(.96);box-shadow:0 6px 16px -8px rgba(47,155,214,.34)}
+.btn-ghost:not(:disabled):active{background:var(--bg)}
+.btn-danger:not(:disabled):active{background:#FBD9D9}
 
 .pill{display:inline-flex;align-items:center;gap:5px;padding:4px 11px;border-radius:var(--radius-pill);font-size:12px;font-weight:600}
 .pill-blue{background:var(--primary-soft);color:var(--primary)}
@@ -133,6 +147,14 @@ label.lbl{display:block;font-size:13px;font-weight:600;color:var(--sub);margin-b
 .hero h2{font-size:20px;margin-bottom:6px}
 .hero p{opacity:.92;font-size:13px}
 .hero .hero-actions{display:flex;gap:10px;flex-shrink:0}
+/* 概览页：历史进度列表（顺序练习 / 顺序背题） */
+.hero-resume{display:block}
+.resume-list{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.resume-row{display:flex;align-items:center;justify-content:space-between;gap:12px;background:rgba(255,255,255,.18);border-radius:14px;padding:11px 14px}
+.resume-main{min-width:0}
+.resume-title{font-size:13.5px;font-weight:700}
+.resume-sub{font-size:12px;opacity:.88;margin-top:2px}
+.resume-actions{display:flex;gap:8px;flex-shrink:0}
 
 .grid-2{display:grid;grid-template-columns:1.4fr 1fr;gap:18px}
 .mini-list{display:flex;flex-direction:column;gap:10px}
@@ -177,15 +199,22 @@ label.lbl{display:block;font-size:13px;font-weight:600;color:var(--sub);margin-b
 }
 .option:hover{border-color:var(--primary);background:var(--primary-soft)}
 .option.sel{border-color:var(--primary);background:var(--primary-soft)}
-.option.correct{border-color:var(--success);background:var(--success-soft)}
+.option.sel-correct{border-color:var(--success);background:var(--success-soft)}
 .option.wrong{border-color:var(--danger);background:var(--danger-soft)}
+/* 漏选：底色与普通选项一致，仅靠右侧「漏选」小角标提示 */
+.option.missed{background:#FBFDFE;border-color:var(--line)}
 .option .opt-mark{
   width:24px;height:24px;border-radius:50%;border:1.5px solid var(--muted);flex-shrink:0;
   display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:var(--muted);
 }
+.option .opt-text{flex:1}
 .option.sel .opt-mark{border-color:var(--primary);color:var(--primary);background:#fff}
-.option.correct .opt-mark{border-color:var(--success);color:var(--success);background:#fff}
+.option.sel-correct .opt-mark{border-color:var(--success);color:var(--success);background:#fff}
 .option.wrong .opt-mark{border-color:var(--danger);color:var(--danger);background:#fff}
+.opt-flag{font-size:12px;font-weight:700;flex-shrink:0;letter-spacing:.2px}
+.opt-flag.ok{color:var(--success)}
+.opt-flag.no{color:var(--danger)}
+.opt-flag.miss{color:var(--warn)}
 
 .answer-area{margin-top:18px}
 .fill-input{width:100%}
@@ -198,11 +227,45 @@ label.lbl{display:block;font-size:13px;font-weight:600;color:var(--sub);margin-b
 .feedback.ok .fb-title{color:var(--success)}
 .feedback.no .fb-title{color:var(--danger)}
 .feedback .fb-exp{font-size:13px;color:var(--sub);white-space:pre-wrap}
-.feedback .fb-ans{font-size:13px;font-weight:600;margin-top:8px;color:var(--text)}
+.feedback .fb-ans{font-size:13px;font-weight:600;margin-top:8px;color:var(--text);line-height:1.7}
+.feedback .fb-k{color:var(--sub);font-weight:600}
+.feedback .fb-miss{color:var(--warn)}
 
 .quiz-foot{display:flex;justify-content:space-between;margin-top:20px}
 
 .self-rate{display:flex;gap:10px;margin-top:6px}
+
+/* ============ 考试答题卡 ============ */
+.quiz-wrap.exam-mode{max-width:1040px}
+.quiz-layout{display:grid;grid-template-columns:minmax(0,1fr) 276px;gap:18px;align-items:start;max-width:1040px;margin:0 auto}
+.question-side{min-width:0}
+.answer-sheet{position:sticky;top:18px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius-card);padding:18px;box-shadow:var(--shadow-1)}
+.sheet-top{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.sheet-title{font-weight:700;font-size:15px;flex:1}
+.sheet-close{display:none;width:32px;height:32px;border-radius:10px;border:1.5px solid var(--line);background:var(--bg);color:var(--sub);align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
+.sheet-close:hover{border-color:var(--danger);color:var(--danger)}
+.sheet-count{font-size:12px;color:var(--sub);margin-bottom:14px}
+.sheet-count b{color:var(--primary);font-weight:800}
+.sheet-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:9px}
+.sheet-cell{aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;border-radius:12px;border:1.5px solid var(--line);background:var(--bg);font-size:13px;font-weight:700;color:var(--sub);cursor:pointer;transition:.15s;user-select:none}
+.sheet-cell:hover{border-color:var(--primary);color:var(--primary)}
+.sheet-cell.done{background:var(--success-soft);border-color:var(--success);color:var(--success)}
+.sheet-cell.current{border-color:var(--primary);color:var(--primary);background:#fff;box-shadow:0 0 0 3px var(--primary-soft)}
+.sheet-legend{display:flex;gap:14px;margin-top:16px;font-size:12px;color:var(--sub);flex-wrap:wrap}
+.sheet-legend span{display:inline-flex;align-items:center}
+.sheet-legend i{display:inline-block;width:11px;height:11px;border-radius:4px;margin-right:6px}
+.sheet-submit{margin-top:18px;width:100%;justify-content:center}
+.sheet-fab{display:none}
+.sheet-mask{display:none}
+@media (max-width:900px){
+  .quiz-layout{grid-template-columns:1fr}
+  .answer-sheet{position:fixed;top:0;bottom:0;left:0;width:min(86vw,330px);border-radius:0;border:none;border-right:1px solid var(--line);transform:translateX(-100%);transition:transform .25s ease;z-index:60;overflow:auto;box-shadow:var(--shadow-2)}
+  .answer-sheet.open{transform:translateX(0)}
+  .sheet-close{display:flex}
+  .sheet-fab{display:inline-flex;position:fixed;right:16px;bottom:18px;z-index:40;height:48px;padding:0 18px;border-radius:999px;align-items:center;gap:8px;box-shadow:var(--shadow-2)}
+  .sheet-mask{position:fixed;inset:0;background:rgba(20,30,45,.42);z-index:55;opacity:0;pointer-events:none;transition:opacity .25s}
+  .sheet-mask.show{opacity:1;pointer-events:auto}
+}
 
 /* ============ 结果页 ============ */
 .result-wrap{max-width:640px;margin:0 auto;text-align:center}
